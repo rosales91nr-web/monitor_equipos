@@ -1,8 +1,13 @@
 <?php
 require_once 'config.php';
 
-$surfDir = defined('LOG_DIR_SURFACING') ? LOG_DIR_SURFACING : __DIR__ . '/logs/surfacing';
-$edgDir  = defined('LOG_DIR_EDGING')   ? LOG_DIR_EDGING    : __DIR__ . '/logs/edging';
+$surfDir    = defined('LOG_DIR_SURFACING') ? LOG_DIR_SURFACING : __DIR__ . '/logs/surfacing';
+$edgDir     = defined('LOG_DIR_EDGING')   ? LOG_DIR_EDGING    : __DIR__ . '/logs/edging';
+$statusFile = __DIR__ . '/logs/sync_status.json';
+$syncStatus = file_exists($statusFile) ? json_decode(file_get_contents($statusFile), true) : [];
+$syncKey    = defined('SYNC_API_KEY') ? SYNC_API_KEY : '—';
+$replitUrl  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
+              . '://' . $_SERVER['HTTP_HOST'];
 
 $msg     = '';
 $msgType = '';
@@ -196,6 +201,37 @@ nav a.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .info-box code{font-family:var(--mono);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px;color:var(--text)}
 
 footer{position:fixed;bottom:0;left:0;right:0;background:rgba(244,246,249,.94);backdrop-filter:blur(12px);border-top:1px solid var(--border);padding:8px 24px;display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--muted);z-index:100}
+
+/* ── Sync auto ── */
+.sync-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:32px}
+@media(max-width:700px){.sync-grid{grid-template-columns:1fr}}
+.sync-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+.sync-card-head{padding:16px 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,rgba(37,99,235,.04),rgba(37,99,235,.02))}
+.sync-card-head h3{font-size:14px;font-weight:700;color:var(--text)}
+.sync-card-head p{font-size:11px;color:var(--muted);margin-top:2px}
+.sync-card-body{padding:20px}
+.sync-status-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.sync-stat{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.sync-stat-label{font-size:10px;color:var(--muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
+.sync-stat-value{font-size:13px;font-weight:600;font-family:var(--mono);color:var(--text);word-break:break-all}
+.sync-stat-value.ok{color:var(--success)}
+.sync-stat-value.never{color:var(--muted)}
+.sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+.sync-dot.ok{background:var(--success);box-shadow:0 0 0 3px rgba(5,150,105,.2)}
+.sync-dot.never{background:var(--muted2)}
+.copy-row{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px 14px;margin-bottom:12px}
+.copy-val{font-family:var(--mono);font-size:12px;color:var(--text);flex:1;word-break:break-all}
+.copy-btn{background:var(--accent);color:#fff;border:none;border-radius:7px;padding:5px 12px;font-size:11px;font-family:var(--sans);font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s;flex-shrink:0}
+.copy-btn:hover{background:var(--accent2)}
+.copy-btn.copied{background:var(--success)}
+.step-list{display:flex;flex-direction:column;gap:10px}
+.step-item{display:flex;gap:12px;align-items:flex-start}
+.step-num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.step-text{font-size:12px;color:var(--muted);line-height:1.6}
+.step-text strong{color:var(--text)}
+.step-text code{font-family:var(--mono);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px;color:var(--text)}
+.dl-btn{display:flex;align-items:center;gap:8px;background:var(--accent);color:#fff;text-decoration:none;border-radius:9px;padding:10px 18px;font-size:13px;font-weight:600;font-family:var(--sans);transition:background .18s;margin-bottom:16px;justify-content:center}
+.dl-btn:hover{background:var(--accent2)}
 </style>
 </head>
 <body>
@@ -370,12 +406,143 @@ footer{position:fixed;bottom:0;left:0;right:0;background:rgba(244,246,249,.94);b
 </div>
 </div>
 
+<div class="st">Sincronización automática desde Windows</div>
+
+<?php
+// Estado de cada servidor
+$srvStatus = [];
+foreach (['Surfacing','Edging'] as $srv) {
+    $s = $syncStatus[$srv] ?? null;
+    $srvStatus[$srv] = [
+        'last_sync' => $s['last_sync'] ?? null,
+        'last_file' => $s['last_file'] ?? null,
+        'bytes'     => $s['bytes']     ?? 0,
+        'ok'        => $s !== null,
+    ];
+}
+?>
+
+<div class="sync-grid">
+
+  <!-- Estado + configuración -->
+  <div class="sync-card">
+    <div class="sync-card-head">
+      <span style="font-size:22px">🔄</span>
+      <div>
+        <h3>Estado del agente</h3>
+        <p>Se actualiza cada vez que el script envía un archivo</p>
+      </div>
+    </div>
+    <div class="sync-card-body">
+      <div class="sync-status-row">
+        <?php foreach ($srvStatus as $srv => $st): ?>
+        <div class="sync-stat">
+          <div class="sync-stat-label"><?= $srv ?></div>
+          <?php if ($st['ok']): ?>
+            <div class="sync-stat-value ok">
+              <span class="sync-dot ok"></span>Activo
+            </div>
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:6px">
+              <?= htmlspecialchars($st['last_file']) ?><br>
+              <?= htmlspecialchars($st['last_sync']) ?><br>
+              <?= $st['bytes'] > 1048576 ? round($st['bytes']/1048576,1).' MB' : round($st['bytes']/1024,1).' KB' ?>
+            </div>
+          <?php else: ?>
+            <div class="sync-stat-value never">
+              <span class="sync-dot never"></span>Sin sync aún
+            </div>
+          <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;font-family:var(--mono)">
+        ENDPOINT DEL SERVIDOR
+      </div>
+      <div class="copy-row">
+        <span class="copy-val" id="val-endpoint"><?= htmlspecialchars($replitUrl) ?>/sync_api.php</span>
+        <button class="copy-btn" onclick="copyTo('val-endpoint',this)">Copiar</button>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;font-family:var(--mono)">
+        API KEY (pégala en el script)
+      </div>
+      <div class="copy-row">
+        <span class="copy-val" id="val-key"><?= htmlspecialchars($syncKey) ?></span>
+        <button class="copy-btn" onclick="copyTo('val-key',this)">Copiar</button>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted2);font-family:var(--mono);margin-top:4px">
+        ⚠ Cambia la API Key en config.php para mayor seguridad
+      </div>
+    </div>
+  </div>
+
+  <!-- Instrucciones de instalación -->
+  <div class="sync-card">
+    <div class="sync-card-head">
+      <span style="font-size:22px">🖥️</span>
+      <div>
+        <h3>Configuración en Windows</h3>
+        <p>3 pasos · 5 minutos · sin instalar nada extra</p>
+      </div>
+    </div>
+    <div class="sync-card-body">
+      <a class="dl-btn" href="sync_agent.ps1" download>
+        ⬇ Descargar sync_agent.ps1
+      </a>
+
+      <div class="step-list">
+        <div class="step-item">
+          <div class="step-num">1</div>
+          <div class="step-text">
+            Abre <code>sync_agent.ps1</code> con el Bloc de notas y edita las 2 primeras variables:<br>
+            <strong>$REPLIT_URL</strong> → pega la URL copiada arriba (sin la barra final)<br>
+            <strong>$API_KEY</strong> → pega la API Key copiada arriba
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">2</div>
+          <div class="step-text">
+            Haz clic derecho sobre el archivo → <strong>"Ejecutar con PowerShell"</strong>.<br>
+            Verás en la ventana cómo sube los logs cada 60 segundos. El dashboard se actualiza automáticamente.
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">3</div>
+          <div class="step-text">
+            Para que corra <strong>siempre en segundo plano</strong> (aunque no estés logueado), programa una tarea:<br>
+            Abre PowerShell como Administrador y ejecuta el comando que está dentro del archivo <code>.ps1</code> en la sección <em>PROGRAMAR COMO TAREA AUTOMÁTICA</em>.
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--success)">✓</div>
+          <div class="step-text">
+            El script sube el <code>.log</code> del día en curso de ambos servidores (Surfacing y Edging), más los <code>.zip</code> mensuales para historial. Nada más, nada menos.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
 <footer>
   <span>🔬 LensWare Monitor v2.0</span>
   <span>Gestión de archivos de log</span>
 </footer>
 
 <script>
+function copyTo(id, btn) {
+  const text = document.getElementById(id).textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copiado';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
 function onFile(id, input) {
   const file = input.files[0];
   const sel  = document.getElementById('sel-' + id);
