@@ -152,6 +152,7 @@ input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,9
     <nav>
       <a href="index.php">📊 General</a>
       <a href="device.php" class="active">🖥️ Por Equipo</a>
+      <a href="upload.php">📂 Logs</a>
     </nav>
     <div class="live"><div class="dot"></div>EN VIVO</div>
   </div>

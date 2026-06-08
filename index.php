@@ -229,6 +229,7 @@ footer {
     <nav>
       <a href="index.php" class="active">📊 General</a>
       <a href="device.php">🖥️ Por Equipo</a>
+      <a href="upload.php">📂 Logs</a>
     </nav>
     <div class="live"><div class="dot"></div>EN VIVO</div>
     <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">↺ <span id="ref-int"><?= $refresh ?></span>s</span>
