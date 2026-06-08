@@ -6,10 +6,10 @@
  */
 
 // ─── SERVIDOR DE SURFACING ──────────────────────────────────────────────────
-define('LOG_DIR_SURFACING', '\\\\172.16.8.32\\Lensware\\LensDeviceServer_Surfacing\\Log');
+define('LOG_DIR_SURFACING', __DIR__ . '/logs/surfacing');
 
 // ─── SERVIDOR DE EDGING ─────────────────────────────────────────────────────
-define('LOG_DIR_EDGING', '\\\\172.16.8.32\\Lensware\\LensDeviceServer_Edging\\Log');
+define('LOG_DIR_EDGING', __DIR__ . '/logs/edging');
 
 // ─── INTERVALO DE ACTUALIZACIÓN (segundos) ─────────────────────────────────
 define('REFRESH_INTERVAL', 10);
