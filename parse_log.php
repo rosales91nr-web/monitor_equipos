@@ -456,8 +456,22 @@ function _mergeData(array $data, string $label, string $fileTag,
     foreach ($data['devices'] as $devKey => $dev) {
         $dev['server']  = $label;
         $dev['logFile'] = $fileTag;
-        if (!isset($allDevices[$devKey]) || $dev['lastSeen'] > $allDevices[$devKey]['lastSeen']) {
+        if (!isset($allDevices[$devKey])) {
             $allDevices[$devKey] = $dev;
+        } else {
+            // Acumular jobs únicos de todos los archivos del período
+            $existingJobs = $allDevices[$devKey]['jobs'] ?? [];
+            foreach ($dev['jobs'] as $j) {
+                if (!in_array($j, $existingJobs, true)) {
+                    $existingJobs[] = $j;
+                }
+            }
+            // Conservar el estado más reciente (lastSeen) pero con jobs acumulados
+            if ($dev['lastSeen'] > $allDevices[$devKey]['lastSeen']) {
+                $allDevices[$devKey] = $dev;
+            }
+            $allDevices[$devKey]['jobs']     = $existingJobs;
+            $allDevices[$devKey]['jobCount'] = count($existingJobs);
         }
     }
 

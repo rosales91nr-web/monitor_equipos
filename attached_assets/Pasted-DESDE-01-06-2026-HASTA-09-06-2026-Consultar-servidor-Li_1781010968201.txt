@@ -1,0 +1,287 @@
+DESDE
+
+01/06/2026
+HASTA
+
+09/06/2026
+🔍 Consultar servidor
+✕ Limpiar
+📅 01/06/2026 → 09/06/2026
+⚙️ Surfacing
+2784 órdenes · 15 archivo(s)
+📄 20260609.log, 20260609_01.log, 20260601.log (zip), 20260601_01.log (zip) …
+✂️ Edging
+2681 órdenes · 33 archivo(s)
+📄 20260609.log, 20260609_01.log, 20260609_02.log, 20260609_04.log …
+Total Órdenes
+3702
+01/06/2026 → 09/06/2026
+Equipos Activos
+16
+Surfacing + Edging
+Surfacing
+10
+equipos
+Edging
+6
+equipos
+Timeouts
+1532
+01/06/2026 → 09/06/2026
+SGEN
+4
+Generando
+SPOL
+2
+Puliendo
+SENG
+1
+Grabando
+SBLK
+3
+Bloqueando
+EDGE
+6
+Biselando
+Equipos del Sistema
+HSC MODULO XTS
+HSE001 · HSE002
+SGEN
+Estado
+Generando
+Producción
+Freeform ED
+Operador
+XX
+Último evento
+07:15:03
+68
+órdenes en período
+Surfacing
+Ver detalle →
+CCP MODULO ONE
+CCP002 · CCP002
+SPOL
+Estado
+Puliendo
+Producción
+Freeform SP
+Operador
+—
+Último evento
+07:09:46
+72
+órdenes en período
+Surfacing
+Ver detalle →
+LASER CCL MÓDULO
+CCL004 · FIX004
+SENG
+Estado
+Grabando
+Producción
+Freeform SE
+Operador
+FABIO
+Último evento
+07:07:57
+72
+órdenes en período
+Surfacing
+Ver detalle →
+BLOQUEADORA BOND 2B
+CCU004 · CCU102
+SBLK
+Estado
+Bloqueando
+Producción
+Bloqueado
+Operador
+—
+Último evento
+07:07:12
+23
+órdenes en período
+Surfacing
+Ver detalle →
+BLOQUEADORA BOND-E Automática
+CCU003 · CCU003
+SBLK
+Estado
+Bloqueando
+Producción
+Bloqueado
+Operador
+—
+Último evento
+07:14:57
+18
+órdenes en período
+Surfacing
+Ver detalle →
+HSC SMART XP2
+HSE003 · HSE022
+SGEN
+Estado
+Generando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+06:55:55
+1
+órdenes en período
+Surfacing
+Ver detalle →
+HSC SMART
+HSE002 · HSC102
+SGEN
+Estado
+Generando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+07:14:14
+2
+órdenes en período
+Surfacing
+Ver detalle →
+CCP MODULO
+CCP004 · CCP005
+SPOL
+Estado
+Puliendo
+Producción
+Freeform SP
+Operador
+—
+Último evento
+06:53:42
+1
+órdenes en período
+Surfacing
+Ver detalle →
+GENERADOR SMART 1
+HSS004 · HSS101
+SGEN
+Estado
+Generando
+Producción
+Freeform SG
+Operador
+—
+Último evento
+15:25:41
+1
+órdenes en período
+Surfacing
+Ver detalle →
+BLOQUEADORA BOND 1B
+CCU001 · CCU103
+SBLK
+Estado
+Bloqueando
+Producción
+Bloqueado
+Operador
+—
+Último evento
+12:54:58
+6
+órdenes en período
+Surfacing
+Ver detalle →
+EASYFIT 4
+ESF001 · ESF123
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+07:13:42
+1
+órdenes en período
+Edging
+Ver detalle →
+EASYFIT 5
+ESF002 · ESF456
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+01:56:07
+19
+órdenes en período
+Edging
+Ver detalle →
+EASYFIT 2
+ESF004 · ESF321
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+07:14:32
+26
+órdenes en período
+Edging
+Ver detalle →
+EASYFIT 6
+ESF003 · ESF789
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+14:42:08
+2
+órdenes en período
+Edging
+Ver detalle →
+ESF005
+ESF005 · ESF322
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+13:39:19
+123
+órdenes en período
+Edging
+Ver detalle →
+4Racer TBA
+4RA001 · 4RA322
+EDGE
+Estado
+Biselando
+Producción
+Freeform ED
+Operador
+—
+Último evento
+23:57:04
+351
+órdenes en período
+Edging
+Ver detalle →
+Historial Completo de Órdenes
