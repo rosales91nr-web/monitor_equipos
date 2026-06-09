@@ -205,6 +205,37 @@ input[type=date]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba
 .skel-kpi { height: 88px; margin-bottom: 12px; }
 .skel-card { height: 170px; }
 
+/* ── Pipeline Surfacing ── */
+.pipeline { display: flex; align-items: center; gap: 3px; flex-wrap: nowrap; }
+.ps {
+  font-size: 9px; font-family: var(--mono); font-weight: 700;
+  padding: 2px 5px; border-radius: 4px; border: 1px solid;
+  white-space: nowrap; cursor: default; transition: opacity .15s;
+}
+.ps-arrow { color: #cbd5e1; font-size: 10px; line-height: 1; }
+.ps-done  { color: #fff; }
+.ps-pend  { background: transparent; color: #94a3b8; border-color: #e2e8f0; }
+.ps-repr  { background: var(--danger) !important; color: #fff !important; border-color: var(--danger) !important; }
+
+/* ── Device error badges ── */
+.dev-err-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.dev-err-badge {
+  font-size: 9px; font-family: var(--mono); font-weight: 700;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid; white-space: nowrap;
+}
+.dev-err-badge.alloy { background:#fee2e2; color:#dc2626; border-color:#fca5a5; }
+.dev-err-badge.tray  { background:#fef3c7; color:#d97706; border-color:#fde68a; }
+
+/* ── Process stats section ── */
+.proc-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: rgba(5,150,105,.06); border: 1px solid rgba(5,150,105,.2);
+  border-radius: 10px; padding: 10px 16px; margin-bottom: 18px; font-size: 12px;
+}
+.proc-bar-label { color: var(--muted); font-size: 10px; font-family: var(--mono); letter-spacing: .6px; text-transform: uppercase; }
+.proc-bar-val   { font-weight: 700; font-family: var(--mono); }
+.proc-sep       { width: 1px; height: 18px; background: rgba(5,150,105,.2); margin: 0 4px; }
+
 /* ── Footer ── */
 footer {
   position: fixed; bottom: 0; left: 0; right: 0;
@@ -316,15 +347,18 @@ function periodLabel(data) {
   return fmt(f) + ' → ' + fmt(t);
 }
 
+function fmtNum(n){ return n>=1000?(n/1000).toFixed(1)+'k':n; }
+
 function renderKPIs(data){
   const stCount={};
   Object.values(data.devices).forEach(d=>{ stCount[d.status]=(stCount[d.status]||0)+1; });
   const bySrv={Surfacing:0,Edging:0};
   Object.values(data.devices).forEach(d=>{ bySrv[d.server]=(bySrv[d.server]||0)+1; });
   const period = periodLabel(data);
+  const ps = data.processStats || {};
 
   let html = `
-    <div class="kpi" style="--kpi-color:${SERVER_COLORS.Surfacing}">
+    <div class="kpi">
       <div class="kpi-label">Total Órdenes</div>
       <div class="kpi-value" style="color:var(--accent)">${data.totalJobs}</div>
       <div class="kpi-sub">${esc(period)}</div>
@@ -343,6 +377,35 @@ function renderKPIs(data){
       <div class="kpi-sub">equipos</div>
     </div>`;
   });
+
+  if((ps.withSteps||0)>0){
+    html+=`<div class="kpi">
+      <div class="kpi-label">Completados</div>
+      <div class="kpi-value" style="color:var(--success)">${ps.complete||0}</div>
+      <div class="kpi-sub">${ps.completePct||0}% de ${ps.withSteps} con seguimiento</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Reprocesos</div>
+      <div class="kpi-value" style="color:var(--warn)">${ps.reprocesos||0}</div>
+      <div class="kpi-sub">${esc(period)}</div>
+    </div>`;
+  }
+
+  if((ps.errB601||0)>0||(ps.errB701||0)>0){
+    html+=`<div class="kpi">
+      <div class="kpi-label">Err. Aleación</div>
+      <div class="kpi-value" style="color:var(--danger);font-size:22px">${fmtNum(ps.errB601||0)}</div>
+      <div class="kpi-sub">B;601 · ${fmtNum(ps.errB701||0)} B;701</div>
+    </div>`;
+  }
+
+  if((ps.waitingForTrays||0)>0){
+    html+=`<div class="kpi">
+      <div class="kpi-label">Sin bandejas</div>
+      <div class="kpi-value" style="color:var(--warn);font-size:22px">${fmtNum(ps.waitingForTrays)}</div>
+      <div class="kpi-sub">eventos Waiting for trays</div>
+    </div>`;
+  }
 
   if(data.timeouts>0){
     html+=`<div class="kpi">
@@ -364,10 +427,28 @@ function renderKPIs(data){
   return html;
 }
 
+function renderDeviceErrors(dev){
+  const errs = dev.errors;
+  if(!errs) return '';
+  let badges = '';
+  const tot601   = errs.B601         || 0;
+  const tot701   = errs.B701         || 0;
+  const totWait  = errs.waitingTrays || 0;
+  if(tot601>0||tot701>0){
+    const n = Math.max(tot601,tot701);
+    badges += `<span class="dev-err-badge alloy" title="Error de cálculo de aleación B;601/B;701 — ${tot601} × B;601, ${tot701} × B;701">⚠ Aleación ×${fmtNum(n)}</span>`;
+  }
+  if(totWait>0){
+    badges += `<span class="dev-err-badge tray" title="Equipo esperando bandejas de bloqueo — ${totWait} eventos">⏳ Bandeja ×${fmtNum(totWait)}</span>`;
+  }
+  return badges ? `<div class="dev-err-row">${badges}</div>` : '';
+}
+
 function renderDevices(devices){
   return Object.entries(devices).map(([devKey,dev])=>{
     const sCol = STATUS_COLORS[dev.status]||'#7a8aaa';
     const srvCol = SERVER_COLORS[dev.server]||'#7a8aaa';
+    const errHtml = renderDeviceErrors(dev);
     return `<a class="dcard" href="device.php?dev=${encodeURIComponent(devKey)}" style="">
       <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:${srvCol};border-radius:12px 0 0 12px"></div>
       <div style="padding-left:8px">
@@ -382,6 +463,7 @@ function renderDevices(devices){
       <div class="dr"><span class="dr-l">Producción</span><span class="dr-v">${esc(dev.prodLabel)}</span></div>
       <div class="dr"><span class="dr-l">Operador</span><span class="dr-v">${esc(dev.user)}</span></div>
       <div class="dr"><span class="dr-l">Último evento</span><span class="dr-v mono" style="font-size:10px;color:var(--muted)">${esc((dev.lastSeen||'').substring(11))}</span></div>
+      ${errHtml}
       <div class="dc-foot">
         <div>
           <div class="dc-cnt" style="color:${srvCol}">${dev.jobCount}</div>
@@ -397,8 +479,37 @@ function renderDevices(devices){
   }).join('');
 }
 
+const STEP_COLORS = {SBLK:'#d97706',SGEN:'#2563eb',SPOL:'#7c3aed',SENG:'#059669'};
+const STEP_LABELS = {SBLK:'BLK',SGEN:'GEN',SPOL:'POL',SENG:'ENG'};
+const STEP_ORDER  = ['SBLK','SGEN','SPOL','SENG'];
+
+function renderPipeline(job){
+  const sc = job.stepCounts || {};
+  if(!Object.keys(sc).length) return '<span style="color:var(--muted2);font-size:10px;font-family:var(--mono)">—</span>';
+  const parts = STEP_ORDER.map((st,i)=>{
+    const cnt  = sc[st] || 0;
+    const done = cnt > 0;
+    const repr = cnt > 1;
+    const col  = STEP_COLORS[st];
+    const cls  = repr ? 'ps ps-done ps-repr' : (done ? 'ps ps-done' : 'ps ps-pend');
+    const bg   = done ? (repr?'#dc2626':col) : 'transparent';
+    const brd  = done ? (repr?'#dc2626':col) : '#e2e8f0';
+    const ttip = repr ? `Reproceso ×${cnt}` : (done?'Completado':'Pendiente');
+    const arrow= i<3?'<span class="ps-arrow">›</span>':'';
+    return `<span class="${cls}" style="background:${bg};border-color:${brd}" title="${ttip}">${STEP_LABELS[st]}</span>${arrow}`;
+  });
+  // Badge de estado global
+  let badge = '';
+  if(job.complete){
+    badge = `<span title="Todas las etapas completadas" style="margin-left:6px;font-size:9px;font-family:var(--mono);font-weight:700;background:rgba(5,150,105,.12);color:#059669;border:1px solid rgba(5,150,105,.3);border-radius:4px;padding:1px 5px">✓</span>`;
+  } else if(job.reproceso){
+    badge = `<span title="Reproceso detectado" style="margin-left:6px;font-size:9px;font-family:var(--mono);font-weight:700;background:rgba(220,38,38,.1);color:#dc2626;border:1px solid rgba(220,38,38,.3);border-radius:4px;padding:1px 5px">↺</span>`;
+  }
+  return `<div class="pipeline">${parts.join('')}${badge}</div>`;
+}
+
 function renderJobs(jobs, devices){
-  if(!jobs.length) return '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted)">Sin órdenes registradas</td></tr>';
+  if(!jobs.length) return '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted)">Sin órdenes registradas</td></tr>';
   return jobs.map((job,i)=>{
     const srv=job.server||'?';
     const sc=SERVER_COLORS[srv]||'#7a8aaa';
@@ -407,14 +518,21 @@ function renderJobs(jobs, devices){
       const dc=di?SERVER_COLORS[di.server]||'#7a8aaa':'#7a8aaa';
       return `<a href="device.php?dev=${encodeURIComponent(dn)}" style="text-decoration:none">${tag(dn,dc+'18',dc,dc+'40')}</a>`;
     }).join(' ');
+    // Lens metadata tooltip
+    const lens = job.lens;
+    const lensTitle = lens ? `${lens.name||'—'} · ${lens.type||'—'} · ${lens.mfr||'—'}` : '';
+    const jobTag = lens
+      ? `<span title="${esc(lensTitle)}" style="cursor:help">${tag(job.job,'rgba(37,99,235,.12)','#3b82f6','rgba(59,130,246,.3)')}</span>`
+      : tag(job.job,'rgba(37,99,235,.12)','#3b82f6','rgba(59,130,246,.3)');
     return `<tr>
       <td class="mono" style="color:var(--muted2)">${i+1}</td>
-      <td>${tag(job.job,'rgba(37,99,235,.12)','#3b82f6','rgba(59,130,246,.3)')}</td>
+      <td>${jobTag}</td>
       <td class="mono">${esc(job.order)}</td>
       <td class="mono" style="color:var(--muted);font-size:11px">${esc(job.firstSeen)}</td>
       <td class="mono" style="color:var(--muted);font-size:11px">${esc(job.lastSeen)}</td>
       <td>${devTags}</td>
       <td>${tag(srv,sc+'18',sc,sc+'40')}</td>
+      <td style="min-width:140px">${renderPipeline(job)}</td>
       <td class="mono" style="color:var(--muted)">${(job.events||[]).length}</td>
     </tr>`;
   }).join('');
@@ -446,7 +564,9 @@ function render(data){
         <thead><tr>
           <th>#</th><th>JOB</th><th>Nº Orden</th>
           <th>Primer evento</th><th>Último evento</th>
-          <th>Equipos</th><th>Servidor</th><th>Pasos</th>
+          <th>Equipos</th><th>Servidor</th>
+          <th title="BLK=Bloqueado · GEN=Generado · POL=Pulido · ENG=Grabado · Rojo=Reproceso · ✓=Completo">Pipeline</th>
+          <th>Eventos</th>
         </tr></thead>
         <tbody>${renderJobs(data.jobs||[], data.devices||{})}</tbody>
       </table>

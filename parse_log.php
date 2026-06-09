@@ -1,21 +1,11 @@
 <?php
 /**
- * LensWare Log Parser — v3.1
+ * LensWare Log Parser — v4.0
  * Soporta archivos .log sueltos + ZIPs mensuales (YYYYMM.zip)
  * + filtro de rango de fechas (from / to en formato YYYY-MM-DD)
- *
- * Lógica de ZIPs:
- *  - ZIP del mes actual  → siempre incluido
- *  - ZIPs de meses anteriores → incluidos solo si $includeOldZips = true
- *    (y solo si el rango de fechas solicitado los cubre)
- *  - Si un .log aparece tanto suelto como dentro de un ZIP, el suelto tiene prioridad
- *
- * Filtro de fechas:
- *  - $from y $to son strings "YYYY-MM-DD" o null
- *  - Los jobs cuyo lastSeen < from o firstSeen > to se descartan
- *  - Los eventos individuales fuera del rango se filtran del timeline
- *  - Los archivos .log y ZIPs cuyo mes no puede contener el rango se saltan
- *    para no parsear datos que serán descartados de todos modos
+ * + seguimiento de pipeline de Surfacing: Bloqueado→Generado→Pulido→Grabado
+ * + detección de reprocesos, errores B;601/B;701, Waiting for trays
+ * + metadatos de lentes (LNAM, LTYP, LMFR)
  */
 
 // ─── MAPA DE NOMBRES DE EQUIPOS ─────────────────────────────────────────────
@@ -39,27 +29,16 @@ $DEVICE_NAMES = [
 
 // ─── HELPERS DE FECHA ────────────────────────────────────────────────────────
 
-/**
- * Convierte "dd.mm.yyyy HH:MM:SS" a "yyyy-mm-dd" para comparación.
- * Retorna "" si el formato no se reconoce.
- */
 function tsToDate(string $ts): string {
-    // Formato esperado: "06.06.2025 14:32:11"
     if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})/', $ts, $m)) {
         return "{$m[3]}-{$m[2]}-{$m[1]}";
     }
     return '';
 }
 
-/**
- * Decide si un archivo de log (identificado por su nombre, ej. "20250606.log"
- * o el ZIP "202506.zip") podría contener datos dentro del rango [from, to].
- * Si no se puede inferir la fecha del nombre, retorna true (incluir por defecto).
- */
 function fileCouldMatchRange(string $basename, ?string $from, ?string $to): bool {
     if ($from === null && $to === null) return true;
 
-    // Nombre tipo YYYYMMDD.log o YYYYMMDD_NN.log (log por puerto) → fecha exacta del archivo
     if (preg_match('/^(\d{4})(\d{2})(\d{2})(?:_\d+)?\.log$/i', $basename, $m)) {
         $fileDate = "{$m[1]}-{$m[2]}-{$m[3]}";
         if ($to   !== null && $fileDate > $to)   return false;
@@ -67,17 +46,15 @@ function fileCouldMatchRange(string $basename, ?string $from, ?string $to): bool
         return true;
     }
 
-    // Nombre tipo YYYYMM.zip → mes completo
     if (preg_match('/^(\d{4})(\d{2})\.zip$/i', $basename, $m)) {
         $zipMonthStart = "{$m[1]}-{$m[2]}-01";
-        // Último día del mes
         $zipMonthEnd   = date('Y-m-t', strtotime($zipMonthStart));
         if ($to   !== null && $zipMonthStart > $to)   return false;
         if ($from !== null && $zipMonthEnd   < $from)  return false;
         return true;
     }
 
-    return true; // nombre desconocido → incluir
+    return true;
 }
 
 // ─── PARSER DE UN ÚNICO ARCHIVO .log ────────────────────────────────────────
@@ -111,18 +88,42 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
         'FSG' => 'Freeform SG','FIX' => 'Fixed',
     ];
 
+    // Pipeline de Surfacing (excluye EDGE/biseladoras)
+    $SURF_PIPELINE = ['SBLK' => 1, 'SGEN' => 2, 'SPOL' => 3, 'SENG' => 4];
+
     $jobs     = [];
     $devices  = [];
     $timeouts = 0;
 
+    // Patrones existentes
     $jobPatIP  = '/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): (\d+\.\d+\.\d+\.\d+): Data found for JOB = (\d+), OrdNumbH = \d+, OrdNumb = (\d+)/';
     $jobPatDev = '/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): ([A-Z0-9]+): Data found for JOB = (\d+), OrdNumbH = \d+, OrdNumb = (\d+)/';
     $devPatIP  = '/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): (\d+\.\d+\.\d+\.\d+): Device: (\w+) - DeviceUser: (\w*) - Status: (\w+) - devMode: (\w+) - prodType: (\w+) - Model \+ MID: (\w+)/';
     $devPatDev = '/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): ([A-Z0-9]+): Device: (\w+) - DeviceUser: (\w*) - Status: (\w+) - devMode: (\w+) - prodType: (\w+) - Model \+ MID: (\w+)/';
 
-    $ipToDevice = [];
+    // Nuevos patrones
+    $cmd1024Pat = '/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): (\d+\.\d+\.\d+\.\d+): Command: 1024/';
+    $tsPfx      = '/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}: /';
 
-    $logDate = '';
+    // Tracking de contexto IP→job (para step tracking)
+    $ipJobCtx = [];   // ip → ['job', 'minute']
+    $stepSeen = [];   // 'job|devId|stepType|minute' → true (dedup)
+
+    // Metadatos de lentes por job
+    $lensData = [];   // jobId → ['name', 'type', 'mfr']
+
+    // Errores por dispositivo
+    $deviceErrors = []; // devId → ['B601', 'B701', 'waitingTrays', 'firstTs', 'lastTs']
+
+    // Estado de máquina de continuación (bloques XSTATUS sin timestamp)
+    $cmdCtxType = null;
+    $cmdCtxIP   = null;
+    $cmdCtxTS   = null;
+    $cmdCtxDate = null;
+
+    $ipToDevice = [];
+    $logDate    = '';
+
     foreach (array_slice($lines, 0, 10) as $l) {
         if (preg_match('/Log start (\d{2}\.\d{2}\.\d{4})/', $l, $m)) {
             $logDate = $m[1];
@@ -130,24 +131,68 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
     }
 
     // ── Pasada previa: construir mapa IP→device completo ─────────────────────
-    // Sin esto, un job cuya línea aparece ANTES de la línea Device: del mismo
-    // bloque queda huérfano bajo la IP en vez del ID del equipo (ej. HSS004).
     foreach ($lines as $line) {
         if (preg_match($devPatIP, $line, $m)) {
-            $ipToDevice[$m[2]] = $m[3]; // IP → device ID
+            $ipToDevice[$m[2]] = $m[3];
         }
     }
 
+    // ── Pasada principal ─────────────────────────────────────────────────────
     foreach ($lines as $line) {
         $line = trim($line);
         if ($line === '' || $line[0] === '*') continue;
 
-        if (strpos($line, 'Timeout after') !== false) {
+        // ── Líneas de continuación (sin timestamp) ───────────────────────────
+        // Son respuesta del equipo al Command:1024 (STATUS poll) →
+        // contienen XSTATUS=Waiting / XSTATUS=B;601 / XSTATUS=B;701
+        if (!preg_match($tsPfx, $line)) {
+            if ($cmdCtxType === '1024' && $cmdCtxIP !== null) {
+                $devId = $ipToDevice[$cmdCtxIP] ?? null;
+                if ($devId) {
+                    $d       = $cmdCtxDate ?? '';
+                    $inRange = (!$from || $d >= $from) && (!$to || $d <= $to);
+                    if ($inRange) {
+                        if (!isset($deviceErrors[$devId])) {
+                            $deviceErrors[$devId] = [
+                                'B601' => 0, 'B701' => 0, 'waitingTrays' => 0,
+                                'firstTs' => $cmdCtxTS, 'lastTs' => $cmdCtxTS,
+                            ];
+                        }
+                        if (str_starts_with($line, 'XSTATUS=Waiting for tray')) {
+                            $deviceErrors[$devId]['waitingTrays']++;
+                            $deviceErrors[$devId]['lastTs'] = $cmdCtxTS;
+                        } elseif (str_starts_with($line, 'XSTATUS=B;601;')) {
+                            $deviceErrors[$devId]['B601']++;
+                            $deviceErrors[$devId]['lastTs'] = $cmdCtxTS;
+                        } elseif (str_starts_with($line, 'XSTATUS=B;701;')) {
+                            $deviceErrors[$devId]['B701']++;
+                            $deviceErrors[$devId]['lastTs'] = $cmdCtxTS;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // ── Línea con timestamp: resetear contexto de continuación ──────────
+        $cmdCtxType = null;
+
+        // ── Detectar Command:1024 (poll de estado del equipo) ────────────────
+        if (str_contains($line, 'Command: 1024') && preg_match($cmd1024Pat, $line, $m)) {
+            $cmdCtxType = '1024';
+            $cmdCtxIP   = $m[2];
+            $cmdCtxTS   = $m[1];
+            $cmdCtxDate = tsToDate($m[1]);
+            continue;
+        }
+
+        // ── Timeout counter ───────────────────────────────────────────────────
+        if (str_contains($line, 'Timeout after')) {
             $timeouts++;
             continue;
         }
 
-        // ── Device status ────────────────────────────────────────────────────
+        // ── Device status ─────────────────────────────────────────────────────
         $dm = null;
         if (preg_match($devPatIP, $line, $m)) {
             $dm = ['ts'=>$m[1],'id'=>$m[2],'dev'=>$m[3],'user'=>$m[4],
@@ -157,7 +202,6 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
                    'status'=>$m[5],'mode'=>$m[6],'ptype'=>$m[7],'model'=>$m[8],'byip'=>false];
         }
         if ($dm) {
-            // Filtro de fecha para el estado del dispositivo
             $d = tsToDate($dm['ts']);
             if ($from && $d && $d < $from) { if ($dm['byip']) $ipToDevice[$dm['id']] = $dm['dev']; continue; }
             if ($to   && $d && $d > $to)   { if ($dm['byip']) $ipToDevice[$dm['id']] = $dm['dev']; continue; }
@@ -183,10 +227,33 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
                 ];
             }
             if ($dm['byip']) $ipToDevice[$dm['id']] = $key;
+
+            // ── Añadir step al job si hay contexto IP activo (pipeline Surfacing) ─
+            if ($dm['byip'] && isset($SURF_PIPELINE[$dm['status']])) {
+                $ip = $dm['id'];
+                if (isset($ipJobCtx[$ip])) {
+                    $ctx      = $ipJobCtx[$ip];
+                    $jobId    = $ctx['job'];
+                    $devId    = $dm['dev'];
+                    $stepType = $dm['status'];
+                    $minute   = $ctx['minute'];
+                    $seenKey  = $jobId . '|' . $devId . '|' . $stepType . '|' . $minute;
+                    if (!isset($stepSeen[$seenKey]) && isset($jobs[$jobId])) {
+                        $stepSeen[$seenKey] = true;
+                        $jobs[$jobId]['steps'][] = [
+                            'ts'        => $dm['ts'],
+                            'dev'       => $devId,
+                            'stepType'  => $stepType,
+                            'stepLabel' => $statusLabels[$stepType] ?? $stepType,
+                            'prodType'  => $dm['ptype'],
+                        ];
+                    }
+                }
+            }
             continue;
         }
 
-        // ── Job events ───────────────────────────────────────────────────────
+        // ── Job events ────────────────────────────────────────────────────────
         $jm = null;
         if (preg_match($jobPatIP, $line, $m)) {
             $jm = ['ts'=>$m[1],'src'=>$m[2],'job'=>$m[3],'ord'=>$m[4],'byip'=>true];
@@ -194,7 +261,6 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
             $jm = ['ts'=>$m[1],'src'=>$m[2],'job'=>$m[3],'ord'=>$m[4],'byip'=>false];
         }
         if ($jm) {
-            // Filtro de fecha para eventos
             $d = tsToDate($jm['ts']);
             if ($from && $d && $d < $from) continue;
             if ($to   && $d && $d > $to)   continue;
@@ -203,21 +269,77 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
             $job     = $jm['job'];
             if (!isset($jobs[$job])) {
                 $jobs[$job] = [
-                    'job'       => $job,
-                    'order'     => $jm['ord'],
-                    'firstSeen' => $jm['ts'],
-                    'lastSeen'  => $jm['ts'],
-                    'devices'   => [],
-                    'events'    => [],
+                    'job'        => $job,
+                    'order'      => $jm['ord'],
+                    'firstSeen'  => $jm['ts'],
+                    'lastSeen'   => $jm['ts'],
+                    'devices'    => [],
+                    'events'     => [],
+                    'steps'      => [],
+                    'stepCounts' => [],
+                    'complete'   => false,
+                    'reproceso'  => false,
+                    'reachedStep'=> null,
+                    'lens'       => null,
                 ];
             }
             if ($jm['ts'] > $jobs[$job]['lastSeen']) $jobs[$job]['lastSeen'] = $jm['ts'];
             if (!in_array($devName, $jobs[$job]['devices'], true))
                 $jobs[$job]['devices'][] = $devName;
             $jobs[$job]['events'][] = ['ts' => $jm['ts'], 'dev' => $devName];
+
+            // Establecer contexto IP→job para el siguiente Device: line
+            if ($jm['byip']) {
+                $ipJobCtx[$jm['src']] = [
+                    'job'    => $job,
+                    'minute' => substr($jm['ts'], 0, 16), // "dd.mm.yyyy HH:MM"
+                ];
+            }
+            continue;
+        }
+
+        // ── Línea Data: con metadatos VCA (LNAM, LTYP, LMFR) ────────────────
+        if (str_contains($line, ': Data: ') && str_contains($line, 'JOB=') && str_contains($line, 'LNAM=')) {
+            if (preg_match('/^(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}): (\d+\.\d+\.\d+\.\d+): Data: /', $line)) {
+                if (preg_match('/JOB=(\d+)/', $line, $jm2)) {
+                    $jobId = $jm2[1];
+                    if (!isset($lensData[$jobId])) {
+                        $lensName = null; $lensType = null; $lensMfr = null;
+                        if (preg_match('/LNAM=([^;<\x0d\r\n]+)/', $line, $lm)) $lensName = explode(';', $lm[1])[0];
+                        if (preg_match('/LTYP=([^;<\x0d\r\n]+)/', $line, $lm)) $lensType = explode(';', $lm[1])[0];
+                        if (preg_match('/LMFR=([^;<\x0d\r\n]+)/', $line, $lm)) $lensMfr  = explode(';', $lm[1])[0];
+                        if ($lensName || $lensType || $lensMfr) {
+                            $lensData[$jobId] = ['name' => $lensName, 'type' => $lensType, 'mfr' => $lensMfr];
+                        }
+                    }
+                }
+            }
         }
     }
 
+    // ── Post-procesado: flags de proceso por job ─────────────────────────────
+    foreach ($jobs as $jobId => &$job) {
+        // Aplicar metadatos de lente
+        if (isset($lensData[$jobId])) {
+            $job['lens'] = $lensData[$jobId];
+        }
+        if (!empty($job['steps'])) {
+            usort($job['steps'], fn($a, $b) => strcmp($a['ts'], $b['ts']));
+            $stepTypes        = array_column($job['steps'], 'stepType');
+            $job['stepCounts']= array_count_values($stepTypes);
+            $job['complete']  = in_array('SENG', $stepTypes);
+            $job['reproceso'] = max($job['stepCounts']) > 1;
+            $maxStep = 0;
+            $SURF_PIPELINE2   = ['SBLK' => 1, 'SGEN' => 2, 'SPOL' => 3, 'SENG' => 4];
+            foreach ($stepTypes as $st) {
+                if (isset($SURF_PIPELINE2[$st]) && $SURF_PIPELINE2[$st] > $maxStep) $maxStep = $SURF_PIPELINE2[$st];
+            }
+            $job['reachedStep'] = $maxStep > 0 ? array_search($maxStep, $SURF_PIPELINE2) : null;
+        }
+    }
+    unset($job);
+
+    // ── Vincular jobs a devices ───────────────────────────────────────────────
     foreach ($jobs as $job => $jdata) {
         foreach ($jdata['devices'] as $devName) {
             if (isset($devices[$devName]) && !in_array($job, $devices[$devName]['jobs'], true)) {
@@ -236,23 +358,18 @@ function parseLensLog($logPath, ?string $contentOverride = null, ?string $from =
         'timeouts'     => $timeouts,
         'jobs'         => array_values($jobs),
         'devices'      => $devices,
+        'deviceErrors' => $deviceErrors,
     ];
 }
 
 // ─── UTILIDADES DE ZIP ───────────────────────────────────────────────────────
 
-/**
- * Retorna los ZIPs mensuales (YYYYMM.zip) encontrados en un directorio.
- * @return array ['current' => string|null, 'historical' => string[]]
- */
 function findMonthlyZips(string $dir): array {
     $result = ['current' => null, 'historical' => []];
     if (!is_dir($dir)) return $result;
 
-    $currentMonth = date('Ym'); // ej. "202606"
+    $currentMonth = date('Ym');
 
-    // Buscar ZIPs en la raiz del directorio Y en subcarpetas inmediatas.
-    // Cubre: Log\202606.zip  y  Log\SubCarpeta\202606.zip
     $sep      = DIRECTORY_SEPARATOR;
     $patterns = [
         $dir . $sep . '*.zip',
@@ -270,13 +387,11 @@ function findMonthlyZips(string $dir): array {
 
     foreach ($zips as $zipPath) {
         $name = pathinfo($zipPath, PATHINFO_FILENAME);
-        if (!preg_match('/^\d{6}$/', $name)) continue; // solo YYYYMM
+        if (!preg_match('/^\d{6}$/', $name)) continue;
 
         if ($name === $currentMonth) {
-            // Si hay duplicados del mes actual en raiz y subcarpeta, el primero gana
             if ($result['current'] === null) $result['current'] = $zipPath;
         } else {
-            // Evitar duplicados del mismo mes en ubicaciones distintas
             $alreadyHave = array_filter($result['historical'],
                 fn($p) => pathinfo($p, PATHINFO_FILENAME) === $name);
             if (empty($alreadyHave)) {
@@ -288,10 +403,6 @@ function findMonthlyZips(string $dir): array {
     return $result;
 }
 
-/**
- * Parsea todos los .log dentro de un ZipArchive con filtro de fecha.
- * Omite los que ya están en $alreadyParsed.
- */
 function parseZip(string $zipPath, array $alreadyParsed, string $label, string $zipTag,
                   ?string $from, ?string $to): array {
     $results    = [];
@@ -319,7 +430,6 @@ function parseZip(string $zipPath, array $alreadyParsed, string $label, string $
             continue;
         }
 
-        // Saltar archivos cuya fecha no pueda estar en el rango
         if (!fileCouldMatchRange($basename, $from, $to)) {
             $sourceInfo['skipped'][] = $basename . ' (fuera de rango)';
             continue;
@@ -343,13 +453,6 @@ function parseZip(string $zipPath, array $alreadyParsed, string $label, string $
 
 // ─── FUNCIÓN PRINCIPAL ───────────────────────────────────────────────────────
 
-/**
- * Parsea todos los logs de ambos servidores con filtro de rango de fechas.
- *
- * @param bool        $includeOldZips  Si true incluye ZIPs históricos que cubran el rango
- * @param string|null $from            Fecha inicio "YYYY-MM-DD" (inclusive), null = sin límite
- * @param string|null $to             Fecha fin   "YYYY-MM-DD" (inclusive), null = sin límite
- */
 function parseAllLogs(string $surfacingDir, string $edgingDir,
                       bool $includeOldZips = false,
                       ?string $from = null, ?string $to = null): array {
@@ -371,15 +474,12 @@ function parseAllLogs(string $surfacingDir, string $edgingDir,
 
         $sources[$label] = ['files' => [], 'jobs' => 0, 'devices' => 0];
 
-        // ── 1. Archivos .log sueltos ─────────────────────────────────────────
         $looseFiles  = glob($dir . DIRECTORY_SEPARATOR . '*.log') ?: [];
         $parsedLoose = [];
 
         sort($looseFiles);
         foreach ($looseFiles as $logFile) {
             $basename = basename($logFile);
-
-            // Saltar archivos cuya fecha no pueda estar en el rango
             if (!fileCouldMatchRange($basename, $from, $to)) continue;
 
             $data = parseLensLog($logFile, null, $from, $to);
@@ -394,12 +494,10 @@ function parseAllLogs(string $surfacingDir, string $edgingDir,
             _mergeData($data, $label, $basename, $allJobs, $allDevices);
         }
 
-        // ── 2. ZIPs mensuales ────────────────────────────────────────────────
         $zips = findMonthlyZips($dir);
 
         $zipsToProcess = [];
         if ($zips['current'] !== null) {
-            // ZIP del mes actual: incluir solo si puede cubrir el rango
             if (fileCouldMatchRange(basename($zips['current']), $from, $to)) {
                 $zipsToProcess[] = $zips['current'];
             }
@@ -429,10 +527,67 @@ function parseAllLogs(string $surfacingDir, string $edgingDir,
             }
         }
 
-        // ── 3. Indicar ZIPs históricos disponibles aunque no se procesen ────
         if (!$includeOldZips && !empty($zips['historical'])) {
             $sources[$label]['historicalZipsAvailable'] = array_map('basename', $zips['historical']);
         }
+    }
+
+    // ── Post-merge: recalcular flags de proceso con steps consolidados ────────
+    $SURF_PIPELINE = ['SBLK' => 1, 'SGEN' => 2, 'SPOL' => 3, 'SENG' => 4];
+
+    foreach ($allJobs as &$job) {
+        if (!empty($job['steps'])) {
+            usort($job['steps'], fn($a, $b) => strcmp($a['ts'], $b['ts']));
+            $stepTypes        = array_column($job['steps'], 'stepType');
+            $job['stepCounts']= array_count_values($stepTypes);
+            $job['complete']  = in_array('SENG', $stepTypes);
+            $job['reproceso'] = max($job['stepCounts']) > 1;
+            $maxStep = 0;
+            foreach ($stepTypes as $st) {
+                if (isset($SURF_PIPELINE[$st]) && $SURF_PIPELINE[$st] > $maxStep) $maxStep = $SURF_PIPELINE[$st];
+            }
+            $job['reachedStep'] = $maxStep > 0 ? array_search($maxStep, $SURF_PIPELINE) : null;
+        }
+
+        // Compactar: eliminar steps array completo, conservar resumen
+        if (isset($job['steps'])) unset($job['steps']);
+    }
+    unset($job);
+
+    // ── Estadísticas de proceso ───────────────────────────────────────────────
+    $processStats = [
+        'withSteps'       => 0,
+        'complete'        => 0,
+        'incomplete'      => 0,
+        'reprocesos'      => 0,
+        'completePct'     => 0.0,
+        'byStep'          => ['SBLK' => 0, 'SGEN' => 0, 'SPOL' => 0, 'SENG' => 0],
+        'waitingForTrays' => 0,
+        'errB601'         => 0,
+        'errB701'         => 0,
+    ];
+
+    foreach ($allJobs as $job) {
+        if (empty($job['stepCounts'])) continue;
+        $processStats['withSteps']++;
+        if ($job['complete']  ?? false) $processStats['complete']++;
+        else                            $processStats['incomplete']++;
+        if ($job['reproceso'] ?? false) $processStats['reprocesos']++;
+        foreach (array_keys($job['stepCounts']) as $st) {
+            if (isset($processStats['byStep'][$st])) $processStats['byStep'][$st]++;
+        }
+    }
+
+    foreach ($allDevices as $dev) {
+        $processStats['waitingForTrays'] += $dev['errors']['waitingTrays'] ?? 0;
+        $processStats['errB601']         += $dev['errors']['B601']        ?? 0;
+        $processStats['errB701']         += $dev['errors']['B701']        ?? 0;
+    }
+
+    if ($processStats['withSteps'] > 0) {
+        $processStats['completePct'] = round(
+            $processStats['complete'] / $processStats['withSteps'] * 100, 1
+        );
     }
 
     uasort($allJobs, fn($a, $b) => strcmp($b['lastSeen'], $a['lastSeen']));
@@ -446,6 +601,7 @@ function parseAllLogs(string $surfacingDir, string $edgingDir,
         'sources'      => $sources,
         'logDate'      => date('d.m.Y'),
         'serverTime'   => date('d.m.Y H:i:s'),
+        'processStats' => $processStats,
     ];
 }
 
@@ -453,28 +609,47 @@ function parseAllLogs(string $surfacingDir, string $edgingDir,
 
 function _mergeData(array $data, string $label, string $fileTag,
                     array &$allJobs, array &$allDevices): void {
+
+    // ── Merge devices ─────────────────────────────────────────────────────────
     foreach ($data['devices'] as $devKey => $dev) {
         $dev['server']  = $label;
         $dev['logFile'] = $fileTag;
         if (!isset($allDevices[$devKey])) {
             $allDevices[$devKey] = $dev;
         } else {
-            // Acumular jobs únicos de todos los archivos del período
             $existingJobs = $allDevices[$devKey]['jobs'] ?? [];
             foreach ($dev['jobs'] as $j) {
-                if (!in_array($j, $existingJobs, true)) {
-                    $existingJobs[] = $j;
-                }
+                if (!in_array($j, $existingJobs, true)) $existingJobs[] = $j;
             }
-            // Conservar el estado más reciente (lastSeen) pero con jobs acumulados
             if ($dev['lastSeen'] > $allDevices[$devKey]['lastSeen']) {
+                $keepErrors = $allDevices[$devKey]['errors'] ?? null;
                 $allDevices[$devKey] = $dev;
+                if ($keepErrors !== null) $allDevices[$devKey]['errors'] = $keepErrors;
             }
             $allDevices[$devKey]['jobs']     = $existingJobs;
             $allDevices[$devKey]['jobCount'] = count($existingJobs);
         }
     }
 
+    // ── Merge device errors (B601, B701, waitingTrays) ────────────────────────
+    foreach ($data['deviceErrors'] ?? [] as $devId => $errs) {
+        if (!isset($allDevices[$devId])) continue;
+        if (!isset($allDevices[$devId]['errors'])) {
+            $allDevices[$devId]['errors'] = [
+                'B601' => 0, 'B701' => 0, 'waitingTrays' => 0,
+                'firstTs' => null, 'lastTs' => null,
+            ];
+        }
+        $allDevices[$devId]['errors']['B601']         += $errs['B601']         ?? 0;
+        $allDevices[$devId]['errors']['B701']         += $errs['B701']         ?? 0;
+        $allDevices[$devId]['errors']['waitingTrays'] += $errs['waitingTrays'] ?? 0;
+        $lt = $errs['lastTs']  ?? null;
+        $ft = $errs['firstTs'] ?? null;
+        if ($lt && (!$allDevices[$devId]['errors']['lastTs']  || $lt > $allDevices[$devId]['errors']['lastTs']))  $allDevices[$devId]['errors']['lastTs']  = $lt;
+        if ($ft && (!$allDevices[$devId]['errors']['firstTs'] || $ft < $allDevices[$devId]['errors']['firstTs'])) $allDevices[$devId]['errors']['firstTs'] = $ft;
+    }
+
+    // ── Merge jobs ────────────────────────────────────────────────────────────
     foreach ($data['jobs'] as $job) {
         $j = $job['job'];
         if (!isset($allJobs[$j])) {
@@ -488,6 +663,37 @@ function _mergeData(array $data, string $label, string $fileTag,
                     $allJobs[$j]['devices'][] = $d;
             }
             $allJobs[$j]['events'] = array_merge($allJobs[$j]['events'], $job['events'] ?? []);
+
+            // Merge steps (dedup por ts+dev+stepType)
+            if (!empty($job['steps'])) {
+                if (!isset($allJobs[$j]['steps'])) $allJobs[$j]['steps'] = [];
+                $existingKeys = [];
+                foreach ($allJobs[$j]['steps'] as $step) {
+                    $existingKeys[$step['ts'] . '|' . $step['dev'] . '|' . $step['stepType']] = true;
+                }
+                foreach ($job['steps'] as $step) {
+                    $key = $step['ts'] . '|' . $step['dev'] . '|' . $step['stepType'];
+                    if (!isset($existingKeys[$key])) {
+                        $allJobs[$j]['steps'][] = $step;
+                        $existingKeys[$key] = true;
+                    }
+                }
+            }
+
+            // Merge lens metadata
+            if (!isset($allJobs[$j]['lens']) && isset($job['lens'])) {
+                $allJobs[$j]['lens'] = $job['lens'];
+            }
+
+            // Merge stepCounts (para vistas sin steps completos)
+            if (!empty($job['stepCounts'])) {
+                if (!isset($allJobs[$j]['stepCounts'])) $allJobs[$j]['stepCounts'] = [];
+                foreach ($job['stepCounts'] as $st => $cnt) {
+                    $allJobs[$j]['stepCounts'][$st] = max(
+                        $allJobs[$j]['stepCounts'][$st] ?? 0, $cnt
+                    );
+                }
+            }
         }
     }
 }
