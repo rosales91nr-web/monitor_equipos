@@ -132,10 +132,10 @@ if (!in_array($ext, ['log', 'zip'], true)) {
     respond(false, 'Solo se permiten archivos .log y .zip.');
 }
 
-// Validar nombre: YYYYMMDD.log o YYYYMM.zip
-if ($ext === 'log' && !preg_match('/^\d{8}\.log$/i', $origName)) {
+// Validar nombre: YYYYMMDD.log o YYYYMMDD_NN.log (un log por puerto) o YYYYMM.zip
+if ($ext === 'log' && !preg_match('/^\d{8}(_\d+)?\.log$/i', $origName)) {
     http_response_code(400);
-    respond(false, 'Nombre de log invalido. Se esperaba formato YYYYMMDD.log');
+    respond(false, 'Nombre de log invalido. Formato esperado: YYYYMMDD.log o YYYYMMDD_NN.log');
 }
 if ($ext === 'zip' && !preg_match('/^\d{6}\.zip$/i', $origName)) {
     http_response_code(400);

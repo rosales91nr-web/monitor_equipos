@@ -445,33 +445,46 @@ function render(data){
   if(prevSearch) ft();
 }
 
-// ── Date filter state ──────────────────────────────────────────────────────
-let activeFrom = null; // "YYYY-MM-DD" o null
-let activeTo   = null;
+// ── Helpers de fecha ──────────────────────────────────────────────────────
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+// ── Date filter state — por defecto = hoy ─────────────────────────────────
+const TODAY    = todayISO();
+let activeFrom = TODAY;
+let activeTo   = TODAY;
 
 // ── Persistencia del filtro en sessionStorage ──────────────────────────────
 const FILTER_KEY = 'lw_filter';
 
 function saveFilter(from, to) {
-  if (from || to) {
-    sessionStorage.setItem(FILTER_KEY, JSON.stringify({ from, to }));
-  } else {
-    sessionStorage.removeItem(FILTER_KEY);
-  }
+  sessionStorage.setItem(FILTER_KEY, JSON.stringify({ from: from||TODAY, to: to||TODAY }));
 }
 
 function loadFilter() {
   try {
     const saved = sessionStorage.getItem(FILTER_KEY);
-    if (!saved) return;
-    const { from, to } = JSON.parse(saved);
-    if (from) { document.getElementById('f-from').value = from; activeFrom = from; }
-    if (to)   { document.getElementById('f-to').value   = to;   activeTo   = to;   }
-    if (from || to) updateBadge(from || null, to || null);
-  } catch(e) { /* ignorar errores de parse */ }
+    if (saved) {
+      const { from, to } = JSON.parse(saved);
+      if (from) { activeFrom = from; document.getElementById('f-from').value = from; }
+      if (to)   { activeTo   = to;   document.getElementById('f-to').value   = to;   }
+    } else {
+      // Sin dato guardado: inicializar con hoy
+      document.getElementById('f-from').value = TODAY;
+      document.getElementById('f-to').value   = TODAY;
+    }
+    updateBadge(activeFrom, activeTo);
+  } catch(e) {
+    document.getElementById('f-from').value = TODAY;
+    document.getElementById('f-to').value   = TODAY;
+  }
 }
 
-// Construye la URL de api.php con los parámetros de fecha si están activos
+// Construye la URL de api.php con los parámetros de fecha activos
 function apiUrl() {
   const p = new URLSearchParams({ cache: Date.now() });
   if (activeFrom) p.set('from', activeFrom);
@@ -537,22 +550,25 @@ async function applyServerFilter() {
 }
 
 function clearFilter() {
-  document.getElementById('f-from').value = '';
-  document.getElementById('f-to').value   = '';
-  activeFrom = null;
-  activeTo   = null;
-  saveFilter(null, null);
-  updateBadge(null, null);
-  if (lastData) render(lastData);
-  else fetchData();
+  document.getElementById('f-from').value = TODAY;
+  document.getElementById('f-to').value   = TODAY;
+  activeFrom = TODAY;
+  activeTo   = TODAY;
+  saveFilter(TODAY, TODAY);
+  updateBadge(TODAY, TODAY);
+  fetchData();
 }
 
 function updateBadge(from, to) {
   const badge = document.getElementById('filter-badge');
-  if (!from && !to) { badge.style.display = 'none'; return; }
   badge.style.display = 'inline-block';
+  if (from === TODAY && to === TODAY) {
+    badge.textContent = '📅 Hoy';
+    return;
+  }
+  if (!from && !to) { badge.style.display = 'none'; return; }
   const f = from ? from.split('-').reverse().join('/') : '…';
-  const t = to   ? to.split('-').reverse().join('/')   : 'hoy';
+  const t = to   ? to.split('-').reverse().join('/')   : '…';
   badge.textContent = `📅 ${f} → ${t}`;
 }
 

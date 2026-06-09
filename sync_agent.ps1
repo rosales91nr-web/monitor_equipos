@@ -143,12 +143,17 @@ function Sync-Server {
     $today = Get-Date -Format "yyyyMMdd"
     $month = Get-Date -Format "yyyyMM"
 
-    # ── Archivo .log del dia (siempre se sube: crece con cada trabajo) ─────────
-    $logFile = Join-Path $UncPath "$today.log"
-    if (Test-Path $logFile) {
-        Upload-File -FilePath $logFile -Server $ServerName | Out-Null
+    # ── Archivos .log del dia: archivo principal + logs por puerto (YYYYMMDD_NN.log) ──
+    # LensWare genera un archivo por puerto ademas del log principal del dia.
+    $dayLogs = Get-ChildItem -Path $UncPath -Filter "$today*.log" -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -match "^$today(_\d+)?\.log$" }
+
+    if ($dayLogs -and $dayLogs.Count -gt 0) {
+        foreach ($logItem in $dayLogs) {
+            Upload-File -FilePath $logItem.FullName -Server $ServerName | Out-Null
+        }
     } else {
-        Write-Log "Sin log de hoy en $ServerName ($today.log)"
+        Write-Log "Sin logs de hoy en $ServerName ($today*.log)"
     }
 
     # ── ZIP del mes actual: solo si el archivo cambio desde la ultima subida ───

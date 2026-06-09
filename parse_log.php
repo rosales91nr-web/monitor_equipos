@@ -59,18 +59,11 @@ function tsToDate(string $ts): string {
 function fileCouldMatchRange(string $basename, ?string $from, ?string $to): bool {
     if ($from === null && $to === null) return true;
 
-    // Nombre tipo YYYYMMDD.log → fecha exacta
-    if (preg_match('/^(\d{4})(\d{2})(\d{2})\.log$/i', $basename, $m)) {
+    // Nombre tipo YYYYMMDD.log o YYYYMMDD_NN.log (log por puerto) → fecha exacta del archivo
+    if (preg_match('/^(\d{4})(\d{2})(\d{2})(?:_\d+)?\.log$/i', $basename, $m)) {
         $fileDate = "{$m[1]}-{$m[2]}-{$m[3]}";
         if ($to   !== null && $fileDate > $to)   return false;
-        if ($from !== null && $fileDate < $from)  {
-            // El archivo es anterior al rango — podría tener eventos del día de inicio
-            // si coincide en fecha, así que usamos comparación de mes
-            // Solo descartamos si el archivo es de un mes completamente anterior
-            $fileMonth = "{$m[1]}-{$m[2]}";
-            $fromMonth = substr($from, 0, 7);
-            if ($fileMonth < $fromMonth) return false;
-        }
+        if ($from !== null && $fileDate < $from)  return false;
         return true;
     }
 
