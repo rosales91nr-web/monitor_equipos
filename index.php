@@ -297,10 +297,23 @@ function renderSources(sources){
     }
     return `<div class="src-card" style="border-left:3px solid ${col}">
       <div class="src-title" style="color:${col}">${icon} ${esc(label)}</div>
-      <div class="src-info">${src.devices} equipo(s) · ${src.jobs} órdenes</div>
+      <div class="src-info">${src.jobs} órdenes · ${src.files.length} archivo(s)</div>
       <div class="src-files">📄 ${src.files.slice(0,4).join(', ')}${src.files.length>4?' …':''}</div>
     </div>`;
   }).join('');
+}
+
+// Etiqueta del período activo: "hoy", "DD/MM/YYYY" o "DD/MM → DD/MM"
+function periodLabel(data) {
+  const f = data.filterFrom || null;
+  const t = data.filterTo   || null;
+  if (!f && !t) return 'en vivo';
+  const fmt = s => s ? s.split('-').reverse().join('/') : '…';
+  if (f === t) {
+    const todayStr = todayISO();
+    return f === todayStr ? 'hoy · ' + fmt(f) : fmt(f);
+  }
+  return fmt(f) + ' → ' + fmt(t);
 }
 
 function renderKPIs(data){
@@ -308,12 +321,13 @@ function renderKPIs(data){
   Object.values(data.devices).forEach(d=>{ stCount[d.status]=(stCount[d.status]||0)+1; });
   const bySrv={Surfacing:0,Edging:0};
   Object.values(data.devices).forEach(d=>{ bySrv[d.server]=(bySrv[d.server]||0)+1; });
+  const period = periodLabel(data);
 
   let html = `
     <div class="kpi" style="--kpi-color:${SERVER_COLORS.Surfacing}">
       <div class="kpi-label">Total Órdenes</div>
       <div class="kpi-value" style="color:var(--accent)">${data.totalJobs}</div>
-      <div class="kpi-sub">hoy · ${data.logDate}</div>
+      <div class="kpi-sub">${esc(period)}</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Equipos Activos</div>
@@ -334,7 +348,7 @@ function renderKPIs(data){
     html+=`<div class="kpi">
       <div class="kpi-label">Timeouts</div>
       <div class="kpi-value" style="color:var(--warn)">${data.timeouts}</div>
-      <div class="kpi-sub">hoy</div>
+      <div class="kpi-sub">${esc(period)}</div>
     </div>`;
   }
 
@@ -371,7 +385,7 @@ function renderDevices(devices){
       <div class="dc-foot">
         <div>
           <div class="dc-cnt" style="color:${srvCol}">${dev.jobCount}</div>
-          <div style="font-size:10px;color:var(--muted)">órdenes hoy</div>
+          <div style="font-size:10px;color:var(--muted)">órdenes en período</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
           <span class="server-tag" style="background:${srvCol}18;color:${srvCol}">${esc(dev.server)}</span>
@@ -421,7 +435,7 @@ function render(data){
     <div class="st">Historial Completo de Órdenes</div>
     <div class="tw">
       <div class="ttbar">
-        <h3>${data.totalJobs} órdenes registradas hoy</h3>
+        <h3>${data.totalJobs} órdenes registradas — ${esc(periodLabel(data))}</h3>
         <div class="search-wrap">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input type="text" id="s" placeholder="Buscar JOB / Orden…" oninput="ft()" value="${prevSearch.replace(/"/g,'&quot;')}">
