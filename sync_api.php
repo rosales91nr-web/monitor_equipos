@@ -14,9 +14,9 @@
  *   Devuelve JSON con el estado de la última sincronización.
  */
 
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: X-Sync-Key, Content-Type');
+// Buffer de salida: captura cualquier warning/notice de PHP para que no
+// corrompa la respuesta JSON (p.ej. cuando el POST excede post_max_size)
+ob_start();
 
 require_once 'config.php';
 
@@ -27,6 +27,10 @@ $apiKey     = defined('SYNC_API_KEY') ? SYNC_API_KEY : '';
 
 // ─── Helper: respuesta JSON ──────────────────────────────────────────────────
 function respond(bool $ok, string $message, array $extra = []): void {
+    ob_end_clean();  // descarta cualquier warning que PHP haya impreso antes
+    header('Content-Type: application/json; charset=utf-8');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Headers: X-Sync-Key, Content-Type');
     echo json_encode(array_merge([
         'ok'      => $ok,
         'message' => $message,
@@ -49,6 +53,23 @@ function writeStatus(string $file, array $data): void {
     file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
 
+// ─── Detectar POST descartado por post_max_size ──────────────────────────────
+// Cuando el body excede post_max_size PHP vacía $_POST y $_FILES pero conserva
+// el header X-Sync-Key, por lo que llegaríamos a respond() con datos vacíos.
+// Detectamos esto antes de validar la API key para dar un mensaje claro.
+$isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+$contentLen = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+$postMaxBytes = (function() {
+    $v = ini_get('post_max_size');
+    $u = strtolower(substr($v, -1));
+    $n = (int)$v;
+    return match($u) { 'g' => $n * 1073741824, 'm' => $n * 1048576, 'k' => $n * 1024, default => $n };
+})();
+if ($isPost && $contentLen > 0 && $contentLen > $postMaxBytes && empty($_FILES)) {
+    $limit = round($postMaxBytes / 1048576, 0) . ' MB';
+    respond(false, 'Archivo demasiado grande para el servidor. Limite: ' . $limit . '. Contacta al administrador.');
+}
+
 // ─── Validar API key ────────────────────────────────────────────────────────
 $providedKey = $_SERVER['HTTP_X_SYNC_KEY']
     ?? $_POST['api_key']
@@ -57,7 +78,7 @@ $providedKey = $_SERVER['HTTP_X_SYNC_KEY']
 
 if (!$apiKey || !hash_equals($apiKey, $providedKey)) {
     http_response_code(401);
-    respond(false, 'API key inválida o no configurada.');
+    respond(false, 'API key invalida o no configurada.');
 }
 
 // ─── GET: estado de sincronización ──────────────────────────────────────────
@@ -67,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['status'])) {
 
 // ─── OPTIONS: preflight CORS ────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    ob_end_clean();
     http_response_code(204);
     exit;
 }
@@ -74,12 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // ─── POST: recibir archivo ──────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    respond(false, 'Método no permitido. Usa POST.');
+    respond(false, 'Metodo no permitido. Usa POST.');
 }
 
 if (!isset($_FILES['logfile']) || $_FILES['logfile']['error'] === UPLOAD_ERR_NO_FILE) {
     http_response_code(400);
-    respond(false, 'No se recibió ningún archivo.');
+    respond(false, 'No se recibio ningun archivo.');
 }
 
 $server = trim($_POST['server'] ?? '');
@@ -91,8 +113,15 @@ if (!in_array($server, ['Surfacing', 'Edging'], true)) {
 $destDir = $server === 'Surfacing' ? $surfDir : $edgDir;
 
 if ($_FILES['logfile']['error'] !== UPLOAD_ERR_OK) {
-    $codes = [1=>'Archivo muy grande',2=>'Archivo muy grande',3=>'Carga incompleta',6=>'Sin carpeta temporal',7=>'Error de escritura'];
-    respond(false, 'Error de carga: ' . ($codes[$_FILES['logfile']['error']] ?? 'Código '.$_FILES['logfile']['error']));
+    $codes = [
+        UPLOAD_ERR_INI_SIZE   => 'Archivo demasiado grande (limite PHP ini)',
+        UPLOAD_ERR_FORM_SIZE  => 'Archivo demasiado grande (limite form)',
+        UPLOAD_ERR_PARTIAL    => 'Carga incompleta',
+        UPLOAD_ERR_NO_TMP_DIR => 'Sin carpeta temporal',
+        UPLOAD_ERR_CANT_WRITE => 'Error de escritura en disco',
+    ];
+    $errCode = $_FILES['logfile']['error'];
+    respond(false, 'Error de carga: ' . ($codes[$errCode] ?? 'Codigo ' . $errCode));
 }
 
 $origName = basename($_FILES['logfile']['name']);
@@ -106,11 +135,11 @@ if (!in_array($ext, ['log', 'zip'], true)) {
 // Validar nombre: YYYYMMDD.log o YYYYMM.zip
 if ($ext === 'log' && !preg_match('/^\d{8}\.log$/i', $origName)) {
     http_response_code(400);
-    respond(false, 'Nombre de log inválido. Se esperaba formato YYYYMMDD.log');
+    respond(false, 'Nombre de log invalido. Se esperaba formato YYYYMMDD.log');
 }
 if ($ext === 'zip' && !preg_match('/^\d{6}\.zip$/i', $origName)) {
     http_response_code(400);
-    respond(false, 'Nombre de ZIP inválido. Se esperaba formato YYYYMM.zip');
+    respond(false, 'Nombre de ZIP invalido. Se esperaba formato YYYYMM.zip');
 }
 
 if (!is_dir($destDir)) {
@@ -135,7 +164,9 @@ $status[$server] = [
 ];
 writeStatus($statusFile, $status);
 
-respond(true, "Archivo «$origName» recibido correctamente en $server.", [
+// FIX: usar concatenacion en lugar de interpolacion con caracteres multibyte
+// para evitar el bug "Undefined variable" cuando PHP parsea «$origName»
+respond(true, 'Archivo recibido correctamente: ' . $origName . ' (' . $server . ')', [
     'file'   => $origName,
     'server' => $server,
     'bytes'  => $size,

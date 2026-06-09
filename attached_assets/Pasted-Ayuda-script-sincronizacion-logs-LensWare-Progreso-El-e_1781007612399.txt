@@ -1,0 +1,171 @@
+Ayuda script sincronizacion logs LensWare
+¡Progreso! El error cambió de 405 a 301. El error 301 significa "Redirección permanente" - el servidor está redirigiendo a otra URL.
+
+🔍 El problema: HTTP → HTTPS
+La URL que estás usando es http:// (sin seguridad), pero el servidor Replit probablemente está redirigiendo a https:// (con seguridad).
+
+✅ Solución: Cambiar a HTTPS
+Detén el script con Ctrl + C y actualiza la URL en tu archivo sync_agent.ps1.
+
+Cambia esta línea:
+
+powershell
+$REPLIT_URL  = "http://da0b6d47-2b7b-46df-9301-3ee72b3627eb-00-2uuxsvvi1qr9x.picard.replit.dev"
+Por esta:
+
+powershell
+$REPLIT_URL  = "https://da0b6d47-2b7b-46df-9301-3ee72b3627eb-00-2uuxsvvi1qr9x.picard.replit.dev"
+📝 Solo cambia http:// por https://
+La línea completa quedaría así:
+
+powershell
+$REPLIT_URL  = "https://da0b6d47-2b7b-46df-9301-3ee72b3627eb-00-2uuxsvvi1qr9x.picard.replit.dev"
+🚀 Vuelve a ejecutar:
+powershell
+.\sync_agent.ps1
+✅ Resultado esperado:
+Ahora deberías ver HTTP 200 (éxito) en lugar de 301.
+
+text
+[INFO] Subiendo [Surfacing]: 20260609.log
+[OK]  OK  [Surfacing] 20260609.log (XX KB) → subido correctamente
+¿Ya cambiaste http por https? ¿Qué resultado te da?
+
+PS C:\Users\NestorRosalesOtero\OneDrive - Grupo Noma S.A\Escritorio> .\sync_agent.ps1
+[09.06.2026 06:18:58] [INFO] ========================================================
+[09.06.2026 06:18:58] [INFO] LensWare Sync Agent iniciado
+[09.06.2026 06:18:58] [INFO] Endpoint : https://da0b6d47-2b7b-46df-9301-3ee72b3627eb-00-2uuxsvvi1qr9x.picard.replit.dev/sync_api.php
+[09.06.2026 06:18:58] [INFO] Intervalo: 5 segundos
+[09.06.2026 06:18:58] [INFO] ========================================================
+[09.06.2026 06:18:58] [INFO] --- Ciclo de sincronizaciÃ³n ---
+[09.06.2026 06:18:58] [INFO] Subiendo [Surfacing]: 20260609.log
+[09.06.2026 06:18:58] [OK] OK  [Surfacing] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Surfacing.","time":"09.06.2026 06:18:59","file":"20260609.log","server":"Surfacing","bytes":24493})
+[09.06.2026 06:18:58] [INFO] Subiendo [Surfacing]: 202606.zip
+[09.06.2026 06:19:03] [WARN] ERR [Surfacing] 202606.zip â†’ Error de carga: Archivo muy grande
+[09.06.2026 06:19:03] [INFO] Subiendo [Edging]: 20260609.log
+[09.06.2026 06:19:03] [OK] OK  [Edging] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Edging.","time":"09.06.2026 06:19:04","file":"20260609.log","server":"Edging","bytes":4734})
+[09.06.2026 06:19:03] [INFO] Subiendo [Edging]: 202606.zip
+[09.06.2026 06:19:08] [OK] OK  [Edging] 202606.zip â†’ subido (respuesta: <br />
+<b>Warning</b>:  POST Content-Length of 9993814 bytes exceeds the limit of 8388608 bytes in <b>Unknown</b> on line <b>0</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>17</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>18</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>19</b><br />
+{"ok":false,"message":"API key inv├ílida o no configurada.","time":"09.06.2026 06:19:09"})
+[09.06.2026 06:19:08] [INFO] PrÃ³xima sincronizaciÃ³n en 5 segundos
+[09.06.2026 06:19:13] [INFO] --- Ciclo de sincronizaciÃ³n ---
+[09.06.2026 06:19:13] [INFO] Subiendo [Surfacing]: 20260609.log
+[09.06.2026 06:19:14] [OK] OK  [Surfacing] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Surfacing.","time":"09.06.2026 06:19:15","file":"20260609.log","server":"Surfacing","bytes":24493})
+[09.06.2026 06:19:14] [INFO] Subiendo [Surfacing]: 202606.zip
+[09.06.2026 06:19:18] [WARN] ERR [Surfacing] 202606.zip â†’ Error de carga: Archivo muy grande
+[09.06.2026 06:19:18] [INFO] Subiendo [Edging]: 20260609.log
+[09.06.2026 06:19:18] [OK] OK  [Edging] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Edging.","time":"09.06.2026 06:19:19","file":"20260609.log","server":"Edging","bytes":4734})
+[09.06.2026 06:19:18] [INFO] Subiendo [Edging]: 202606.zip
+[09.06.2026 06:19:23] [OK] OK  [Edging] 202606.zip â†’ subido (respuesta: <br />
+<b>Warning</b>:  POST Content-Length of 9993814 bytes exceeds the limit of 8388608 bytes in <b>Unknown</b> on line <b>0</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>17</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>18</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>19</b><br />
+{"ok":false,"message":"API key inv├ílida o no configurada.","time":"09.06.2026 06:19:24"})
+[09.06.2026 06:19:23] [INFO] PrÃ³xima sincronizaciÃ³n en 5 segundos
+[09.06.2026 06:19:28] [INFO] --- Ciclo de sincronizaciÃ³n ---
+[09.06.2026 06:19:28] [INFO] Subiendo [Surfacing]: 20260609.log
+[09.06.2026 06:19:29] [OK] OK  [Surfacing] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Surfacing.","time":"09.06.2026 06:19:30","file":"20260609.log","server":"Surfacing","bytes":24493})
+[09.06.2026 06:19:29] [INFO] Subiendo [Surfacing]: 202606.zip
+[09.06.2026 06:19:33] [WARN] ERR [Surfacing] 202606.zip â†’ Error de carga: Archivo muy grande
+[09.06.2026 06:19:33] [INFO] Subiendo [Edging]: 20260609.log
+[09.06.2026 06:19:33] [OK] OK  [Edging] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Edging.","time":"09.06.2026 06:19:34","file":"20260609.log","server":"Edging","bytes":4734})
+[09.06.2026 06:19:33] [INFO] Subiendo [Edging]: 202606.zip
+[09.06.2026 06:19:39] [OK] OK  [Edging] 202606.zip â†’ subido (respuesta: <br />
+<b>Warning</b>:  POST Content-Length of 9993814 bytes exceeds the limit of 8388608 bytes in <b>Unknown</b> on line <b>0</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>17</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>18</b><br />
+<br />
+<b>Warning</b>:  Cannot modify header information - headers already sent in <b>/home/runner/workspace/sync_api.php</b> on line <b>19</b><br />
+{"ok":false,"message":"API key inv├ílida o no configurada.","time":"09.06.2026 06:19:39"})
+[09.06.2026 06:19:39] [INFO] PrÃ³xima sincronizaciÃ³n en 5 segundos
+[09.06.2026 06:19:44] [INFO] --- Ciclo de sincronizaciÃ³n ---
+[09.06.2026 06:19:44] [INFO] Subiendo [Surfacing]: 20260609.log
+[09.06.2026 06:19:44] [OK] OK  [Surfacing] 20260609.log â†’ subido (respuesta: <br />
+<b>Warning</b>:  Undefined variable $origName┬╗ in <b>/home/runner/workspace/sync_api.php</b> on line <b>138</b><br />
+{"ok":true,"message":"Archivo ┬½ recibido correctamente en Surfacing.","time":"09.06.2026 06:19:45","file":"20260609.log","server":"Surfacing","bytes":24493})
+[09.06.2026 06:19:44] [INFO] Subiendo [Surfacing]: 202606.zip
+¡Excelente! Los logs .log se están subiendo correctamente ✅. Los problemas que ves son:
+
+📊 Estado actual:
+Tipo	Surfacing	Edging
+.log diario	✅ Éxito	✅ Éxito
+.zip mensual	❌ Archivo muy grande	❌ API key inválida
+🔧 Problemas y soluciones:
+1. ZIP de Surfacing - "Archivo muy grande"
+El servidor Replit tiene un límite de 8MB. Tu archivo 202606.zip de Surfacing excede ese límite.
+
+Soluciones:
+
+Opción A: Comprime el ZIP en partes más pequeñas
+
+Opción B: Sube solo los .log (que ya funcionan)
+
+Opción C: Aumenta el límite en el servidor Replit (si tienes acceso)
+
+2. ZIP de Edging - "API key inválida"
+El servidor no reconoce la API key en los archivos ZIP.
+
+Solución: Modifica el script para enviar la API key también con los ZIP. El script ya la incluye, pero parece que el servidor no la recibe correctamente.
+
+✅ Lo que YA funciona correctamente:
+Surfacing log → Subiendo cada 5 segundos
+
+Edging log → Subiendo cada 5 segundos
+
+📝 Script optimizado (solo logs, sin ZIP):
+Si quieres evitar los errores de ZIP y subir solo los logs diarios (que es lo más importante), modifica la función Sync-Server para que solo suba los .log:
+
+powershell
+function Sync-Server {
+    param(
+        [string]$UncPath,
+        [string]$ServerName
+    )
+
+    if (-not (Test-Path $UncPath)) {
+        Write-Log "Ruta no accesible: $UncPath" "WARN"
+        return
+    }
+
+    $today = Get-Date -Format "yyyyMMdd"
+
+    # ── Solo archivo .log del día ──────────────────────────────────────────────
+    $logFile = Join-Path $UncPath "$today.log"
+    if (Test-Path $logFile) {
+        if (Upload-File -FilePath $logFile -Server $ServerName) {
+            # éxito
+        }
+    } else {
+        Write-Log "Sin log de hoy en $ServerName ($today.log)" "INFO"
+    }
+}
+🎯 Recomendación:
+Los logs diarios se están subiendo perfectamente, que es lo más importante para el monitoreo en vivo. Los ZIP mensuales son solo para historial y puedes subirlos manualmente desde la interfaz web si los necesitas.
+
+¿Quieres que te ayude a modificar el script para que solo suba los logs y evitar los errores?
+
