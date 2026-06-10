@@ -1,14 +1,14 @@
 {
     "Surfacing": {
-        "last_sync": "09.06.2026 13:50:46",
-        "last_file": "20260609_01.log",
-        "bytes": 5469347,
+        "last_sync": "10.06.2026 13:04:04",
+        "last_file": "20260610_01.log",
+        "bytes": 5655222,
         "status": "ok"
     },
     "Edging": {
-        "last_sync": "09.06.2026 13:50:47",
-        "last_file": "20260609_06.log",
-        "bytes": 1688712,
+        "last_sync": "10.06.2026 13:04:08",
+        "last_file": "20260610_03.log",
+        "bytes": 924539,
         "status": "ok"
     }
 }

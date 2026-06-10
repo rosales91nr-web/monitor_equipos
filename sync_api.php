@@ -1,4 +1,7 @@
 <?php
+// Silenciar warnings y errores que puedan romper el JSON
+error_reporting(E_ERROR | E_PARSE);
+ini_set('display_errors', 0);
 /**
  * ╔══════════════════════════════════════════════════════════════╗
  * ║     LENSWARE MONITOR — API DE SINCRONIZACIÓN AUTOMÁTICA      ║
@@ -10,8 +13,8 @@
  *   Campo:   server  = "Surfacing" | "Edging"
  *   Campo:   logfile = <archivo .log o .zip>
  *
- * GET /sync_api.php?status=1&key=<SYNC_API_KEY>
- *   Devuelve JSON con el estado de la última sincronización.
+ * GET /sync_api.php?from=YYYY-MM-DD&to=YYYY-MM-DD
+ *   NO requiere API key - Devuelve los datos para el panel web
  */
 
 // Buffer de salida: captura cualquier warning/notice de PHP para que no
@@ -19,6 +22,7 @@
 ob_start();
 
 require_once 'config.php';
+require_once 'parse_log.php';
 
 $surfDir    = LOG_DIR_SURFACING;
 $edgDir     = LOG_DIR_EDGING;
@@ -30,6 +34,7 @@ function respond(bool $ok, string $message, array $extra = []): void {
     ob_end_clean();  // descarta cualquier warning que PHP haya impreso antes
     header('Content-Type: application/json; charset=utf-8');
     header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     header('Access-Control-Allow-Headers: X-Sync-Key, Content-Type');
     echo json_encode(array_merge([
         'ok'      => $ok,
@@ -53,11 +58,45 @@ function writeStatus(string $file, array $data): void {
     file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
 
+// ─── OPTIONS: preflight CORS ────────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    ob_end_clean();
+    http_response_code(204);
+    exit;
+}
+
+// ─── GET: consulta de datos (NO requiere API key) ───────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    // Si es una petición de estado (opcional, con API key)
+    if (isset($_GET['status'])) {
+        $providedKey = $_GET['key'] ?? '';
+        if ($apiKey && hash_equals($apiKey, $providedKey)) {
+            respond(true, 'Estado OK', ['sync' => readStatus($statusFile)]);
+        } else {
+            respond(false, 'API key requerida para ver estado');
+        }
+    }
+
+    // Consulta normal de datos (sin API key)
+    $today = date('Y-m-d');
+    $from = isset($_GET['from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from']) ? $_GET['from'] : $today;
+    $to   = isset($_GET['to'])   && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'])   ? $_GET['to']   : $today;
+    $showAll = isset($_GET['all']) && $_GET['all'] === '1';
+
+    $includeOldZips = ($from < $today) || ($to < $today) || $showAll;
+
+    $data = parseAllLogs($surfDir, $edgDir, $includeOldZips, $from, $to);
+    $data['serverTime'] = date('d.m.Y H:i:s');
+    $data['filterFrom'] = $from;
+    $data['filterTo']   = $to;
+
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ─── A partir de aquí, solo POST ────────────────────────────────────────────
+
 // ─── Detectar POST descartado por post_max_size ──────────────────────────────
-// Cuando el body excede post_max_size PHP vacía $_POST y $_FILES pero conserva
-// el header X-Sync-Key, por lo que llegaríamos a respond() con datos vacíos.
-// Detectamos esto antes de validar la API key para dar un mensaje claro.
-$isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
 $contentLen = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
 $postMaxBytes = (function() {
     $v = ini_get('post_max_size');
@@ -65,12 +104,12 @@ $postMaxBytes = (function() {
     $n = (int)$v;
     return match($u) { 'g' => $n * 1073741824, 'm' => $n * 1048576, 'k' => $n * 1024, default => $n };
 })();
-if ($isPost && $contentLen > 0 && $contentLen > $postMaxBytes && empty($_FILES)) {
+if ($contentLen > 0 && $contentLen > $postMaxBytes && empty($_FILES)) {
     $limit = round($postMaxBytes / 1048576, 0) . ' MB';
     respond(false, 'Archivo demasiado grande para el servidor. Limite: ' . $limit . '. Contacta al administrador.');
 }
 
-// ─── Validar API key ────────────────────────────────────────────────────────
+// ─── Validar API key solo para POST ─────────────────────────────────────────
 $providedKey = $_SERVER['HTTP_X_SYNC_KEY']
     ?? $_POST['api_key']
     ?? $_GET['key']
@@ -81,24 +120,7 @@ if (!$apiKey || !hash_equals($apiKey, $providedKey)) {
     respond(false, 'API key invalida o no configurada.');
 }
 
-// ─── GET: estado de sincronización ──────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['status'])) {
-    respond(true, 'Estado OK', ['sync' => readStatus($statusFile)]);
-}
-
-// ─── OPTIONS: preflight CORS ────────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    ob_end_clean();
-    http_response_code(204);
-    exit;
-}
-
 // ─── POST: recibir archivo ──────────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    respond(false, 'Metodo no permitido. Usa POST.');
-}
-
 if (!isset($_FILES['logfile']) || $_FILES['logfile']['error'] === UPLOAD_ERR_NO_FILE) {
     http_response_code(400);
     respond(false, 'No se recibio ningun archivo.');
@@ -164,8 +186,6 @@ $status[$server] = [
 ];
 writeStatus($statusFile, $status);
 
-// FIX: usar concatenacion en lugar de interpolacion con caracteres multibyte
-// para evitar el bug "Undefined variable" cuando PHP parsea «$origName»
 respond(true, 'Archivo recibido correctamente: ' . $origName . ' (' . $server . ')', [
     'file'   => $origName,
     'server' => $server,

@@ -623,7 +623,7 @@ function apiUrl() {
   const p = new URLSearchParams({ cache: Date.now() });
   if (activeFrom) p.set('from', activeFrom);
   if (activeTo)   p.set('to',   activeTo);
-  return 'api.php?' + p.toString();
+  return 'sync_api.php?' + p.toString();
 }
 
 // Llamado cuando el usuario cambia los inputs de fecha (filtro rápido en memoria)
